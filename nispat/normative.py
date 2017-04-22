@@ -106,6 +106,8 @@ def estimate(respfile, covfile, maskfile=None, cvfolds=None,
     Y, maskvol = load_response_vars(respfile, maskfile)
     if len(Y.shape) == 1:
         Y = Y[:, np.newaxis]
+    if len(X.shape) == 1:
+        X = X[:, np.newaxis]
     Nmod = Y.shape[1]
 
     if testcov is not None:
@@ -113,10 +115,16 @@ def estimate(respfile, covfile, maskfile=None, cvfolds=None,
         Xte = fileio.load(testcov)
         Yte, testmask = load_response_vars(testresp, maskfile)
         testids = range(X.shape[0], X.shape[0]+Xte.shape[0])
-
+        
+        # creates new axis if shape is a vector
+        if len(Yte.shape) == 1:
+            Yte = Yte[:, np.newaxis]
+        if len(Xte.shape) == 1:
+            Xte = Xte[:, np.newaxis]
+        
         # treat as a single train-test split
         splits = CustomCV((range(0, X.shape[0]),), (testids,))
-
+        
         Y = np.concatenate((Y, Yte), axis=0)
         X = np.concatenate((X, Xte), axis=0)
     else:
