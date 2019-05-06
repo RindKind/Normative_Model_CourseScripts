@@ -2,7 +2,8 @@ from __future__ import print_function
 from __future__ import division
 
 import numpy as np
-from scipy import linalg, optimize
+from scipy import optimize , linalg
+from scipy.linalg import LinAlgError
 
 
 class BLR:
@@ -14,7 +15,7 @@ class BLR:
 
         B = BLR()
         hyp = B.estimate(hyp0, X, y)
-        ts,s2 = B.predict(hyp, X, y, Xs)
+        ys,s2 = B.predict(hyp, X, y, Xs)
 
     where the variables are
 
@@ -24,8 +25,8 @@ class BLR:
     :param Xs: Nte x D array of test cases
     :param hyp0: starting estimates for hyperparameter optimisation
 
-    :returns ts: predictive mean
-    :returns s2: predictive variance
+    :returns: * ys - predictive mean
+              * s2 - predictive variance
 
     The hyperparameters are::
 
@@ -46,12 +47,12 @@ class BLR:
     """
 
     def __init__(self, hyp=None, X=None, y=None,
-                 n_iter=1000, tol=1e-3, verbose=False):
+                 n_iter=100, tol=1e-3, verbose=False):
 
         self.hyp = np.nan
         self.nlZ = np.nan
         self.tol = tol          # not used at present
-        self.n_iter = n_iter    # not used at present
+        self.n_iter = n_iter
         self.verbose = verbose
 
         if (hyp is not None) and (X is not None) and (y is not None):
@@ -89,9 +90,9 @@ class BLR:
         else:
             raise ValueError("hyperparameter vector has invalid length")
 
-        # compute posterior
-        self.A = beta*X.T.dot(X) + self.iSigma          # posterior precision
-        self.m = beta*linalg.solve(self.A, X.T).dot(y)  # posterior mean
+        # compute posterior precision and mean
+        self.A = beta*X.T.dot(X) + self.iSigma
+        self.m = beta*linalg.solve(self.A, X.T, check_finite=False).dot(y)
 
         # save stuff
         self.N = N
@@ -113,11 +114,22 @@ class BLR:
                 nlZ = 1/np.finfo(float).eps
                 return nlZ
 
+        try:
+            # compute the log determinants in a numerically stable way
+            logdetA = 2*sum(np.log(np.diag(np.linalg.cholesky(self.A))))
+        except (ValueError, LinAlgError):
+            print("Warning: Estimation of posterior distribution failed")
+            nlZ = 1/np.finfo(float).eps
+            return nlZ
+
+        logdetSigma = sum(np.log(np.diag(self.Sigma)))  # Sigma is diagonal
+
+        # compute negative marginal log likelihood
         nlZ = -0.5 * (self.N*np.log(beta) - self.N*np.log(2*np.pi) -
-                      np.log(linalg.det(self.Sigma)) -
+                      logdetSigma -
                       beta*(y-X.dot(self.m)).T.dot(y-X.dot(self.m)) -
                       self.m.T.dot(self.iSigma).dot(self.m) -
-                      np.log(linalg.det(self.A))
+                      logdetA
                       )
 
         # make sure the output is finite to stop the minimizer getting upset
@@ -148,7 +160,9 @@ class BLR:
 
         # useful quantities
         XX = X.T.dot(X)
-        Q = linalg.solve(self.A, X.T)
+        S = np.linalg.inv(self.A)  # posterior covariance
+        Q = S.dot(X.T)
+        # Q = linalg.solve(self.A, X.T)
         b = (np.eye(self.D) - beta*Q.dot(X)).dot(Q).dot(y)
 
         # initialise derivatives
@@ -169,14 +183,15 @@ class BLR:
             if len(alpha) == self.D:
                 dSigma = np.zeros((self.D, self.D))
                 dSigma[i, i] = -alpha[i] ** -2
+                diSigma = np.zeros((self.D, self.D))
+                diSigma[i, i] = 1
             else:
                 dSigma = -alpha[i] ** -2*np.eye(self.D)
+                diSigma = np.eye(self.D)
 
-            F = -self.iSigma.dot(dSigma).dot(self.iSigma)
-            c = -beta*F.dot(X.T).dot(y)
+            F = diSigma
+            c = -beta*S.dot(F).dot(S).dot(X.T).dot(y)
 
-            #import pdb
-            #pdb.set_trace()
             dnlZ[i+1] = -(-0.5 * np.trace(self.iSigma.dot(dSigma)) +
                           beta * y.T.dot(X).dot(c) -
                           beta * c.T.dot(XX).dot(self.m) -
@@ -228,6 +243,7 @@ class BLR:
         beta = np.exp(hyp[0])
 
         ys = Xs.dot(self.m)
-        s2 = 1/beta + np.diag(Xs.dot(linalg.solve(self.A, Xs.T)))
+        # compute xs.dot(S).dot(xs.T) avoiding computing off-diagonal entries
+        s2 = 1/beta + np.sum(Xs*linalg.solve(self.A, Xs.T).T, axis=1)
 
         return ys, s2

@@ -4,6 +4,8 @@ import os
 import numpy as np
 import nibabel as nib
 import tempfile
+import pandas as pd
+import re
 
 CIFTI_MAPPINGS = ('dconn', 'dtseries', 'pconn', 'ptseries', 'dscalar',
                   'dlabel', 'pscalar', 'pdconn', 'dpconn',
@@ -16,7 +18,7 @@ CIFTI_VOL_ATLAS = 'Atlas_ROIs.2.nii.gz'
 # ------------------------
 
 
-def create_mask(data_array, mask=None, verbose=False):
+def create_mask(data_array, mask, verbose=False):
     # create a (volumetric) mask either from an input nifti or the nifti itself
 
     if mask is not None:
@@ -40,16 +42,17 @@ def create_mask(data_array, mask=None, verbose=False):
     return maskvol
 
 
-def vol2vec(dat, mask=None, verbose=False):
+def vol2vec(dat, mask, verbose=False):
     # vectorise a 3d image
 
     if len(dat.shape) < 4:
         dim = dat.shape[0:3] + (1,)
     else:
         dim = dat.shape[0:3] + (dat.shape[3],)
-
+        
+    #mask = create_mask(dat, mask=mask, verbose=verbose)
     if mask is None:
-        mask = create_mask(dat, verbose=verbose)
+        mask = create_mask(dat, mask=mask, verbose=verbose)
 
     # mask the image
     maskid = np.where(mask.ravel())[0]
@@ -72,6 +75,8 @@ def file_type(filename):
         ftype = 'nifti'
     elif filename.endswith(('.txt', '.csv', '.tsv', '.asc')):
         ftype = 'text'
+    elif filename.endswith(('.pkl')):
+        ftype = 'binary'
     else:
         raise ValueError("I don't know what to do with " + filename)
 
@@ -119,6 +124,9 @@ def load_nifti(datafile, mask=None, vol=False, verbose=False):
     img = nib.load(datafile)
     dat = img.get_data()
 
+#    if mask is not None:
+#        mask=load_nifti(mask, vol=True)
+
     if not vol:
         dat = vol2vec(dat, mask)
 
@@ -127,6 +135,11 @@ def load_nifti(datafile, mask=None, vol=False, verbose=False):
 
 def save_nifti(data, filename, examplenii, mask):
     """ Write output to nifti """
+
+    # load mask
+    if isinstance(mask, str):
+        mask = load_nifti(mask, vol=True)
+        mask = mask != 0
 
     # load example image
     ex_img = nib.load(examplenii)
@@ -289,15 +302,31 @@ def save_cifti(data, filename, example, mask=None, vol=True, volatlas=None):
 # --------------
 
 
-def load_ascii(filename):
-    # currently very basic functionality.
+def load_pd(filename):
+    # based on pandas
+    x = pd.read_csv(filename,
+                    sep=' ',
+                    header=None)
+    return x
 
+
+def save_pd(data, filename):
+    # based on pandas
+    data.to_csv(filename,
+                index=None,
+                header=None,
+                sep=' ',
+                na_rep='NaN')
+
+
+def load_ascii(filename):
+    # based on pandas
     x = np.loadtxt(filename)
     return x
 
 
 def save_ascii(data, filename):
-
+    # based on pandas
     np.savetxt(filename, data)
 
 # ----------------
@@ -313,6 +342,9 @@ def save(data, filename, example=None, mask=None, text=False):
         save_nifti(data, filename, example, mask)
     elif text or file_type(filename) == 'text':
         save_ascii(data, filename)
+    elif file_type(filename) == 'binary':
+        data = pd.DataFrame(data)
+        data.to_pickle(filename)
 
 
 def load(filename, mask=None, text=False, vol=True):
@@ -323,5 +355,27 @@ def load(filename, mask=None, text=False, vol=True):
         x = load_nifti(filename, mask)
     elif text or file_type(filename) == 'text':
         x = load_ascii(filename)
+    elif file_type(filename) == 'binary':
+        x = pd.read_pickle(filename)
+        x = x.to_numpy()
 
     return x
+
+# -------------------
+# sorting routines for batched in normative parallel
+# -------------------
+
+
+def tryint(s):
+    try:
+        return int(s)
+    except ValueError:
+        return s
+
+
+def alphanum_key(s):
+    return [tryint(c) for c in re.split('([0-9]+)', s)]
+
+
+def sort_nicely(l):
+    return sorted(l, key=alphanum_key)
