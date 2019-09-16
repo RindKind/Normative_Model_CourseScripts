@@ -18,7 +18,7 @@ iv) install the required packages below with " conda install " or " pip install 
 " pip install torch "
 " pip install glob3 "
 
-v) download/clone nispat from https://github.com/RindKind/nispat
+v) download/clone nispat from https://github.com/RindKind/course_normative_model_basic/
 vi) unzip nispat into download folder 
 vii) change dir to download folder using the terminal and execute " pip install nispat-master/ "
 
