@@ -1,6 +1,4 @@
-# nispat
-
-course on normative modeling 
+# course on normative modeling 
 
 How to install nispat?
 
